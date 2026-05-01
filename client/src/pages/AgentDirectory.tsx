@@ -74,7 +74,7 @@ function AgentCard({ agent }: { agent: AgentDef }) {
           <div className="px-6 py-4 border-b border-border">
             <div className="label-caps mb-3">OASF Metadata</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {Object.entries(agent.oasfMetadata).map(([key, value]) => (
+              {Object.entries(agent.oasfMetadata ?? {}).map(([key, value]) => (
                 <div key={key}>
                   <div className="label-caps mb-1">{key}</div>
                   <div className="text-xs font-semibold">{String(value)}</div>

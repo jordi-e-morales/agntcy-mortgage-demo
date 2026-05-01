@@ -12,6 +12,7 @@ export interface OASFAgent {
   communicationPattern: string;
   status: "active" | "idle" | "error";
   tags: string[];
+  oasfMetadata: Record<string, string>;
 }
 
 export const AGENT_REGISTRY: OASFAgent[] = [
@@ -45,6 +46,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "request-reply",
     status: "active",
     tags: ["intake", "validation", "normalization"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "processor",
+      execution_mode: "sequential",
+      pipeline_stage: "1",
+      sla_ms: "8000",
+      auth_required: "false",
+    },
   },
   {
     id: "credit-analyzer-v1",
@@ -77,6 +86,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "request-reply",
     status: "active",
     tags: ["credit", "risk", "underwriting"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "analyzer",
+      execution_mode: "parallel",
+      pipeline_stage: "2",
+      sla_ms: "10000",
+      auth_required: "false",
+    },
   },
   {
     id: "collateral-valuator-v1",
@@ -109,6 +126,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "request-reply",
     status: "active",
     tags: ["collateral", "property", "valuation"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "valuator",
+      execution_mode: "parallel",
+      pipeline_stage: "2",
+      sla_ms: "10000",
+      auth_required: "false",
+    },
   },
   {
     id: "compliance-checker-v1",
@@ -143,6 +168,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "request-reply",
     status: "active",
     tags: ["compliance", "fair-lending", "bsa-aml", "regulatory"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "compliance",
+      execution_mode: "parallel",
+      pipeline_stage: "2",
+      sla_ms: "12000",
+      auth_required: "false",
+    },
   },
   {
     id: "risk-scorer-v1",
@@ -175,6 +208,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "request-reply",
     status: "active",
     tags: ["risk", "pricing", "scoring"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "scorer",
+      execution_mode: "sequential",
+      pipeline_stage: "3",
+      sla_ms: "10000",
+      auth_required: "false",
+    },
   },
   {
     id: "decision-engine-v1",
@@ -208,6 +249,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "request-reply",
     status: "active",
     tags: ["decision", "explainability", "underwriting"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "decision",
+      execution_mode: "sequential",
+      pipeline_stage: "4",
+      sla_ms: "12000",
+      auth_required: "false",
+    },
   },
   {
     id: "documentation-generator-v1",
@@ -238,6 +287,14 @@ export const AGENT_REGISTRY: OASFAgent[] = [
     communicationPattern: "fire-and-forget",
     status: "active",
     tags: ["documentation", "disclosures", "tila", "respa"],
+    oasfMetadata: {
+      oasf_version: "1.0",
+      agent_type: "generator",
+      execution_mode: "sequential",
+      pipeline_stage: "5",
+      sla_ms: "10000",
+      auth_required: "false",
+    },
   },
 ];
 
