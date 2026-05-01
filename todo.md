@@ -48,3 +48,18 @@
 - [x] Vitest unit tests (13 tests passing)
 - [x] TypeScript: zero errors
 - [x] Checkpoint and publish
+
+## Phase 7: AGNTCY Framework Visibility Enhancements
+
+- [x] DB schema: slim_messages, otel_spans, dir_events tables
+- [x] Pipeline: emit SLIM-envelope message events with full protocol headers (DID routing, pattern, encryption, payload schema)
+- [x] Pipeline: emit OpenTelemetry-style spans with per-hop latency
+- [x] tRPC: getSlimMessages procedure
+- [x] tRPC: getOtelSpans procedure
+- [x] Frontend: SLIM Message Bus panel — live scrolling feed with full envelope viewer
+- [ ] Frontend: Protocol Topology diagram — animated agent graph (SVG) with live message edges [deferred]
+- [x] Frontend: Agent Discovery flow panel — DIR announce/discover/resolve sequence
+- [x] Frontend: Identity verification — DID resolution + identity verified flag in Agent Discovery panel
+- [x] Frontend: OpenTelemetry waterfall trace view
+- [x] Frontend: 3 new tabs on application detail page (SLIM Messages, OTel Trace, Agent Discovery)
+- [ ] Frontend: Dedicated "Protocol Explorer" page in sidebar [deferred]

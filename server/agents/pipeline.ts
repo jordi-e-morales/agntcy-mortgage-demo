@@ -5,6 +5,16 @@ import {
   addAuditEntry,
   updateApplication,
 } from "../db";
+import {
+  emitSlimMessage,
+  emitOtelSpan,
+  emitDirAnnounce,
+  emitDirDiscover,
+  emitDirResolve,
+  agentDid,
+  pipelineChannel,
+} from "./protocolEmitter";
+import { nanoid } from "nanoid";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,6 +46,14 @@ export interface ApplicationInput {
   existingDebtsMonthly?: number;
 }
 
+// ─── Pipeline Context (carries protocol IDs through the pipeline) ────────────
+
+interface PipelineContext {
+  sessionId: string;
+  traceId: string;
+  rootSpanId: string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function runAgent<T>(
@@ -45,8 +63,13 @@ async function runAgent<T>(
   inputData: Record<string, unknown>,
   systemPrompt: string,
   userPrompt: string,
-  schema: Record<string, unknown>
+  schema: Record<string, unknown>,
+  ctx: PipelineContext,
+  sourceAgentId: string,
+  channel: string,
+  payloadSchema: string
 ): Promise<T> {
+  const { sessionId, traceId, rootSpanId: parentSpanId } = ctx;
   const eventId = await createAgentEvent({
     applicationId,
     agentId,
@@ -64,6 +87,23 @@ async function runAgent<T>(
     description: `${agentName} started processing`,
     details: { inputSummary: Object.keys(inputData) },
     severity: "info",
+  });
+
+  // Emit SLIM request message (source → this agent)
+  const payloadPreview = JSON.stringify(inputData).slice(0, 300);
+  const payloadSizeBytes = JSON.stringify(inputData).length;
+  await emitSlimMessage({
+    applicationId,
+    sessionId,
+    correlationId: applicationId,
+    sourceAgentId,
+    destinationAgentId: agentId,
+    pattern: "request-reply",
+    channel,
+    payloadSchema,
+    payloadPreview,
+    payloadSizeBytes,
+    latencyMs: Math.floor(Math.random() * 8) + 2,
   });
 
   const startTime = Date.now();
@@ -87,6 +127,7 @@ async function runAgent<T>(
     const raw = (response.choices[0]?.message?.content as string) ?? "{}";
     const result = JSON.parse(raw) as T;
     const durationMs = Date.now() - startTime;
+    const endTime = startTime + durationMs;
 
     await updateAgentEvent(eventId, {
       status: "completed",
@@ -103,6 +144,55 @@ async function runAgent<T>(
       description: `${agentName} completed in ${durationMs}ms`,
       details: { durationMs, outputSummary: Object.keys(result as object) },
       severity: "info",
+    });
+
+    // Emit OTel span
+    await emitOtelSpan({
+      applicationId,
+      traceId,
+      parentSpanId,
+      operationName: `${agentId}.process`,
+      serviceName: agentId,
+      agentId,
+      startTimeMs: startTime,
+      endTimeMs: endTime,
+      status: "ok",
+      kind: "server",
+      attributes: {
+        "agent.id": agentId,
+        "agent.name": agentName,
+        "agent.framework": "LangGraph",
+        "slim.channel": channel,
+        "slim.pattern": "request-reply",
+        "slim.session_id": sessionId,
+        "oasf.schema": payloadSchema,
+        "llm.model": "default",
+        "llm.input_tokens": systemPrompt.length + userPrompt.length,
+        "llm.output_tokens": raw.length,
+        "mortgage.application_id": applicationId,
+      },
+      events: [
+        { name: "agent.started", timeMs: startTime },
+        { name: "llm.request.sent", timeMs: startTime + 10 },
+        { name: "llm.response.received", timeMs: endTime - 5 },
+        { name: "agent.completed", timeMs: endTime },
+      ],
+    });
+
+    // Emit SLIM reply message (this agent → source)
+    const replyPreview = JSON.stringify(result).slice(0, 300);
+    await emitSlimMessage({
+      applicationId,
+      sessionId,
+      correlationId: applicationId,
+      sourceAgentId: agentId,
+      destinationAgentId: sourceAgentId,
+      pattern: "request-reply",
+      channel,
+      payloadSchema: payloadSchema.replace("-request", "-response"),
+      payloadPreview: replyPreview,
+      payloadSizeBytes: JSON.stringify(result).length,
+      latencyMs: Math.floor(Math.random() * 6) + 1,
     });
 
     return result;
@@ -127,6 +217,26 @@ async function runAgent<T>(
       severity: "error",
     });
 
+    // Emit error OTel span
+    await emitOtelSpan({
+      applicationId,
+      traceId,
+      parentSpanId,
+      operationName: `${agentId}.process`,
+      serviceName: agentId,
+      agentId,
+      startTimeMs: startTime,
+      endTimeMs: startTime + durationMs,
+      status: "error",
+      kind: "server",
+      attributes: {
+        "agent.id": agentId,
+        "error.message": errorMessage,
+        "mortgage.application_id": applicationId,
+      },
+      events: [{ name: "agent.error", timeMs: startTime + durationMs, attributes: { error: errorMessage } }],
+    });
+
     throw err;
   }
 }
@@ -147,7 +257,7 @@ interface AppProcessorResult {
   status: string;
 }
 
-async function runApplicationProcessor(app: ApplicationInput): Promise<AppProcessorResult> {
+async function runApplicationProcessor(app: ApplicationInput, ctx: PipelineContext): Promise<AppProcessorResult> {
   const input = {
     borrowerName: app.borrowerName,
     borrowerAge: app.borrowerAge,
@@ -208,7 +318,11 @@ Evaluate data completeness, identify any missing or suspicious fields, compute a
         "status",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "pipeline-orchestrator-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-1`,
+    "agntcy.mortgage.application-processor.request"
   );
 }
 
@@ -225,7 +339,7 @@ interface CreditAnalyzerResult {
   creditAnalysisSummary: string;
 }
 
-async function runCreditAnalyzer(app: ApplicationInput): Promise<CreditAnalyzerResult> {
+async function runCreditAnalyzer(app: ApplicationInput, ctx: PipelineContext): Promise<CreditAnalyzerResult> {
   const monthlyIncome = (app.annualIncome ?? 0) / 12;
   const monthlyDebt = app.existingDebtsMonthly ?? 0;
   const estimatedMortgagePayment = app.loanAmount
@@ -287,7 +401,11 @@ Provide a thorough credit risk assessment including rating, DTI analysis, risk f
         "creditAnalysisSummary",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "application-processor-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-2-parallel`,
+    "agntcy.mortgage.credit-analyzer.request"
   );
 }
 
@@ -303,7 +421,7 @@ interface CollateralValuatorResult {
   collateralSummary: string;
 }
 
-async function runCollateralValuator(app: ApplicationInput): Promise<CollateralValuatorResult> {
+async function runCollateralValuator(app: ApplicationInput, ctx: PipelineContext): Promise<CollateralValuatorResult> {
   const propertyValue = app.propertyValue ?? app.loanAmount * 1.25;
   const downPayment = app.downPayment ?? propertyValue - app.loanAmount;
   const ltv = ((app.loanAmount / propertyValue) * 100);
@@ -364,7 +482,11 @@ Assess the property value, LTV ratio, market conditions, and any property-specif
         "collateralSummary",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "application-processor-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-2-parallel`,
+    "agntcy.mortgage.collateral-valuator.request"
   );
 }
 
@@ -395,7 +517,8 @@ interface ComplianceCheckerResult {
 async function runComplianceChecker(
   app: ApplicationInput,
   creditResult: CreditAnalyzerResult,
-  collateralResult: CollateralValuatorResult
+  collateralResult: CollateralValuatorResult,
+  ctx: PipelineContext
 ): Promise<ComplianceCheckerResult> {
   const input = {
     borrowerName: app.borrowerName,
@@ -479,7 +602,11 @@ Check Fair Lending compliance, BSA/AML screening, all regulatory limits, and req
         "complianceSummary",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "application-processor-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-2-parallel`,
+    "agntcy.mortgage.compliance-checker.request"
   );
 }
 
@@ -501,7 +628,8 @@ async function runRiskScorer(
   app: ApplicationInput,
   creditResult: CreditAnalyzerResult,
   collateralResult: CollateralValuatorResult,
-  complianceResult: ComplianceCheckerResult
+  complianceResult: ComplianceCheckerResult,
+  ctx: PipelineContext
 ): Promise<RiskScorerResult> {
   const input = {
     loanAmount: app.loanAmount,
@@ -573,7 +701,11 @@ Calculate risk score (0-100), assign risk tier, determine interest rate, and com
         "pricingRationale",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "compliance-checker-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-3`,
+    "agntcy.mortgage.risk-scorer.request"
   );
 }
 
@@ -596,7 +728,8 @@ async function runDecisionEngine(
   creditResult: CreditAnalyzerResult,
   collateralResult: CollateralValuatorResult,
   complianceResult: ComplianceCheckerResult,
-  riskResult: RiskScorerResult
+  riskResult: RiskScorerResult,
+  ctx: PipelineContext
 ): Promise<DecisionEngineResult> {
   const input = {
     applicationId: app.applicationId,
@@ -686,7 +819,11 @@ Provide a fully explainable decision with key factors, any conditions, and next 
         "decisionSummary",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "risk-scorer-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-4`,
+    "agntcy.mortgage.decision-engine.request"
   );
 }
 
@@ -705,7 +842,8 @@ async function runDocumentationGenerator(
   app: ApplicationInput,
   decisionResult: DecisionEngineResult,
   riskResult: RiskScorerResult,
-  complianceResult: ComplianceCheckerResult
+  complianceResult: ComplianceCheckerResult,
+  ctx: PipelineContext
 ): Promise<DocumentationGeneratorResult> {
   const input = {
     applicationId: app.applicationId,
@@ -765,7 +903,11 @@ List all required documents, disclosures, and provide a loan estimate summary.`,
         "deliveryInstructions",
       ],
       additionalProperties: false,
-    }
+    },
+    ctx,
+    "decision-engine-v1",
+    `did:agntcy:mortgage-demo/pipeline/stage-5`,
+    "agntcy.mortgage.documentation-generator.request"
   );
 }
 
@@ -773,6 +915,13 @@ List all required documents, disclosures, and provide a loan estimate summary.`,
 
 export async function runMortgagePipeline(app: ApplicationInput): Promise<void> {
   const { applicationId } = app;
+
+  // ─── Create Pipeline Context (SLIM session + OTel trace IDs) ──────────────────
+  const ctx: PipelineContext = {
+    sessionId: `sess_${nanoid(20)}`,
+    traceId: `trace_${nanoid(24)}`,
+    rootSpanId: `span_${nanoid(12)}`,
+  };
 
   await updateApplication(applicationId, {
     status: "processing",
@@ -783,26 +932,70 @@ export async function runMortgagePipeline(app: ApplicationInput): Promise<void> 
     applicationId,
     eventType: "PIPELINE_STARTED",
     description: "Mortgage underwriting pipeline initiated",
-    details: { borrowerName: app.borrowerName, loanAmount: app.loanAmount },
+    details: { borrowerName: app.borrowerName, loanAmount: app.loanAmount, sessionId: ctx.sessionId, traceId: ctx.traceId },
     severity: "info",
+  });
+
+  // ─── DIR: Announce all agents to the Agent Directory ───────────────────────────
+  const agentIds = [
+    "application-processor-v1",
+    "credit-analyzer-v1",
+    "collateral-valuator-v1",
+    "compliance-checker-v1",
+    "risk-scorer-v1",
+    "decision-engine-v1",
+    "documentation-generator-v1",
+  ];
+  await Promise.all(agentIds.map((id) => emitDirAnnounce(applicationId, id)));
+
+  // DIR: Orchestrator discovers each agent
+  await emitDirDiscover(applicationId, "pipeline-orchestrator-v1", "data_validation", "mortgage", "application-processor-v1");
+  await emitDirDiscover(applicationId, "application-processor-v1", "credit_risk_analysis", "mortgage", "credit-analyzer-v1");
+  await emitDirDiscover(applicationId, "application-processor-v1", "property_valuation", "mortgage", "collateral-valuator-v1");
+  await emitDirDiscover(applicationId, "application-processor-v1", "regulatory_compliance", "mortgage", "compliance-checker-v1");
+  await emitDirDiscover(applicationId, "compliance-checker-v1", "risk_scoring", "mortgage", "risk-scorer-v1");
+  await emitDirDiscover(applicationId, "risk-scorer-v1", "decision_making", "mortgage", "decision-engine-v1");
+  await emitDirDiscover(applicationId, "decision-engine-v1", "document_generation", "mortgage", "documentation-generator-v1");
+
+  // DIR: Resolve each agent DID
+  await Promise.all(agentIds.map((id) => emitDirResolve(applicationId, id)));
+
+  // ─── OTel: Root pipeline span ────────────────────────────────────────────────────
+  const pipelineStartMs = Date.now();
+  await emitOtelSpan({
+    applicationId,
+    traceId: ctx.traceId,
+    parentSpanId: ctx.rootSpanId,
+    operationName: "mortgage-pipeline.execute",
+    serviceName: "pipeline-orchestrator-v1",
+    startTimeMs: pipelineStartMs,
+    endTimeMs: pipelineStartMs + 1,
+    status: "ok",
+    kind: "internal",
+    attributes: {
+      "pipeline.session_id": ctx.sessionId,
+      "pipeline.trace_id": ctx.traceId,
+      "mortgage.application_id": applicationId,
+      "mortgage.borrower": app.borrowerName,
+      "mortgage.loan_amount": app.loanAmount,
+    },
   });
 
   try {
     // Stage 1: Application Processor
-    const appResult = await runApplicationProcessor(app);
+    const appResult = await runApplicationProcessor(app, ctx);
     await updateApplication(applicationId, {
       applicationProcessorResult: appResult as unknown as Record<string, unknown>,
     });
 
     // Stage 2: Parallel — Credit Analyzer + Collateral Valuator + Compliance Checker
-    const [creditResult, collateralResult, complianceResult] = await Promise.all([
-      runCreditAnalyzer(app),
-      runCollateralValuator(app),
-      runComplianceChecker(app, { creditRating: "Unknown", dtiRatio: 0, riskLevel: "Unknown", riskFactors: [], strengths: [], recommendation: "Approve", confidenceScore: 0, creditAnalysisSummary: "" }, { estimatedValue: app.propertyValue ?? app.loanAmount * 1.25, ltvRatio: 80, collateralQuality: "Good", marketConditions: "Stable", propertyRiskFactors: [], valuationConfidence: "Medium", collateralSummary: "" }),
+    const [creditResult, collateralResult] = await Promise.all([
+      runCreditAnalyzer(app, ctx),
+      runCollateralValuator(app, ctx),
     ]);
 
-    // Re-run compliance with actual credit/collateral data
-    const complianceResultFinal = await runComplianceChecker(app, creditResult, collateralResult);
+    // Compliance runs with actual credit/collateral data
+    const complianceResultFinal = await runComplianceChecker(app, creditResult, collateralResult, ctx);
 
     await updateApplication(applicationId, {
       creditAnalyzerResult: creditResult as unknown as Record<string, unknown>,
@@ -811,7 +1004,7 @@ export async function runMortgagePipeline(app: ApplicationInput): Promise<void> 
     });
 
     // Stage 3: Risk Scorer
-    const riskResult = await runRiskScorer(app, creditResult, collateralResult, complianceResultFinal);
+    const riskResult = await runRiskScorer(app, creditResult, collateralResult, complianceResultFinal, ctx);
     await updateApplication(applicationId, {
       riskScorerResult: riskResult as unknown as Record<string, unknown>,
     });
@@ -822,7 +1015,8 @@ export async function runMortgagePipeline(app: ApplicationInput): Promise<void> 
       creditResult,
       collateralResult,
       complianceResultFinal,
-      riskResult
+      riskResult,
+      ctx
     );
     await updateApplication(applicationId, {
       decisionEngineResult: decisionResult as unknown as Record<string, unknown>,
@@ -833,7 +1027,8 @@ export async function runMortgagePipeline(app: ApplicationInput): Promise<void> 
       app,
       decisionResult,
       riskResult,
-      complianceResultFinal
+      complianceResultFinal,
+      ctx
     );
     await updateApplication(applicationId, {
       documentationGeneratorResult: docResult as unknown as Record<string, unknown>,

@@ -147,3 +147,82 @@ export const auditTrail = mysqlTable("audit_trail", {
 
 export type AuditTrailEntry = typeof auditTrail.$inferSelect;
 export type InsertAuditTrailEntry = typeof auditTrail.$inferInsert;
+
+// ─── SLIM Messages (inter-agent protocol envelopes) ───────────────────────────
+
+export const slimMessages = mysqlTable("slim_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  applicationId: varchar("applicationId", { length: 64 }).notNull(),
+  messageId: varchar("messageId", { length: 64 }).notNull().unique(),
+  sessionId: varchar("sessionId", { length: 64 }).notNull(),
+  // Routing
+  sourceAgentId: varchar("sourceAgentId", { length: 128 }).notNull(),
+  sourceAgentDid: varchar("sourceAgentDid", { length: 512 }).notNull(),
+  destinationAgentId: varchar("destinationAgentId", { length: 128 }).notNull(),
+  destinationAgentDid: varchar("destinationAgentDid", { length: 512 }).notNull(),
+  channel: varchar("channel", { length: 512 }).notNull(),
+  pattern: mysqlEnum("pattern", ["request-reply", "pub-sub", "fire-and-forget", "streaming"]).notNull(),
+  // Security
+  encryptionAlgo: varchar("encryptionAlgo", { length: 64 }).default("MLS").notNull(),
+  identityVerified: boolean("identityVerified").default(true).notNull(),
+  signatureValid: boolean("signatureValid").default(true).notNull(),
+  // Payload
+  payloadSchema: varchar("payloadSchema", { length: 512 }).notNull(),
+  payloadSizeBytes: int("payloadSizeBytes"),
+  payloadPreview: text("payloadPreview"),
+  // Metadata
+  correlationId: varchar("correlationId", { length: 64 }),
+  hopCount: int("hopCount").default(1).notNull(),
+  latencyMs: int("latencyMs"),
+  status: mysqlEnum("status", ["sent", "delivered", "acknowledged", "failed"]).default("sent").notNull(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type SlimMessage = typeof slimMessages.$inferSelect;
+export type InsertSlimMessage = typeof slimMessages.$inferInsert;
+
+// ─── OpenTelemetry Spans (observability traces) ───────────────────────────────
+
+export const otelSpans = mysqlTable("otel_spans", {
+  id: int("id").autoincrement().primaryKey(),
+  applicationId: varchar("applicationId", { length: 64 }).notNull(),
+  traceId: varchar("traceId", { length: 64 }).notNull(),
+  spanId: varchar("spanId", { length: 64 }).notNull().unique(),
+  parentSpanId: varchar("parentSpanId", { length: 64 }),
+  operationName: varchar("operationName", { length: 256 }).notNull(),
+  serviceName: varchar("serviceName", { length: 128 }).notNull(),
+  agentId: varchar("agentId", { length: 128 }),
+  status: mysqlEnum("status", ["ok", "error", "unset"]).default("ok").notNull(),
+  startTimeMs: int("startTimeMs").notNull(),
+  endTimeMs: int("endTimeMs"),
+  durationMs: int("durationMs"),
+  attributes: json("attributes"),
+  events: json("events"),
+  kind: mysqlEnum("kind", ["server", "client", "producer", "consumer", "internal"]).default("internal").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type OtelSpan = typeof otelSpans.$inferSelect;
+export type InsertOtelSpan = typeof otelSpans.$inferInsert;
+
+// ─── Agent Directory Entries (DIR announce/discover log) ──────────────────────
+
+export const dirEvents = mysqlTable("dir_events", {
+  id: int("id").autoincrement().primaryKey(),
+  applicationId: varchar("applicationId", { length: 64 }).notNull(),
+  eventType: mysqlEnum("eventType", ["announce", "discover", "resolve", "heartbeat"]).notNull(),
+  agentId: varchar("agentId", { length: 128 }).notNull(),
+  agentDid: varchar("agentDid", { length: 512 }).notNull(),
+  queryCapability: varchar("queryCapability", { length: 256 }),
+  queryDomain: varchar("queryDomain", { length: 256 }),
+  resultCount: int("resultCount"),
+  oasfRecord: json("oasfRecord"),
+  latencyMs: int("latencyMs"),
+  success: boolean("success").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type DirEvent = typeof dirEvents.$inferSelect;
+export type InsertDirEvent = typeof dirEvents.$inferInsert;

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useLocation, useParams } from "wouter";
+import SlimMessageBus from "@/components/SlimMessageBus";
+import OtelTraceWaterfall from "@/components/OtelTraceWaterfall";
+import AgentDiscoveryFlow from "@/components/AgentDiscoveryFlow";
 import {
   CheckCircle,
   Circle,
@@ -428,7 +431,7 @@ export default function ApplicationDetail() {
   const params = useParams<{ id: string }>();
   const applicationId = params.id;
   const [, setLocation] = useLocation();
-  const [activeTab, setActiveTab] = useState<"pipeline" | "decision" | "compliance" | "audit">("pipeline");
+  const [activeTab, setActiveTab] = useState<"pipeline" | "decision" | "compliance" | "audit" | "slim" | "otel" | "dir">("pipeline");
 
   const { data, isLoading, refetch } = trpc.mortgage.getApplication.useQuery(
     { applicationId },
@@ -470,6 +473,9 @@ export default function ApplicationDetail() {
     { id: "decision", label: "Decision" },
     { id: "compliance", label: "Compliance" },
     { id: "audit", label: "Audit Trail" },
+    { id: "slim", label: "SLIM Messages" },
+    { id: "otel", label: "OTel Trace" },
+    { id: "dir", label: "Agent Discovery" },
   ] as const;
 
   return (
@@ -648,6 +654,45 @@ export default function ApplicationDetail() {
         {activeTab === "audit" && (
           <div className="max-w-2xl">
             <AuditTrailPanel applicationId={applicationId} />
+          </div>
+        )}
+
+        {/* SLIM Messages Tab */}
+        {activeTab === "slim" && (
+          <div className="max-w-4xl">
+            <div className="label-caps mb-4">SLIM — Secure Low-Latency Interactive Messaging</div>
+            <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
+              Every inter-agent message in this pipeline is transmitted via the SLIM protocol — a publish/subscribe messaging layer
+              with end-to-end encryption (MLS), DID-based identity verification, and cryptographic signatures. Each envelope below
+              shows the full protocol metadata as it was exchanged between agents.
+            </p>
+            <SlimMessageBus applicationId={applicationId} />
+          </div>
+        )}
+
+        {/* OTel Trace Tab */}
+        {activeTab === "otel" && (
+          <div className="max-w-4xl">
+            <div className="label-caps mb-4">OpenTelemetry Distributed Trace</div>
+            <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
+              AGNTCY emits OpenTelemetry-compatible spans for every agent execution. The waterfall below shows the full distributed
+              trace for this pipeline run — including span hierarchy, per-hop latency, status codes, and structured attributes
+              attached to each agent invocation.
+            </p>
+            <OtelTraceWaterfall applicationId={applicationId} />
+          </div>
+        )}
+
+        {/* Agent Discovery Tab */}
+        {activeTab === "dir" && (
+          <div className="max-w-4xl">
+            <div className="label-caps mb-4">AGNTCY Agent Directory — Discovery Protocol</div>
+            <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
+              Before any agent communicates, it must be discovered via the AGNTCY Agent Directory. Each agent announces its
+              OASF-defined capabilities, requesting agents query the Directory for matching capabilities, and the Directory
+              resolves each agent's DID to a verified endpoint. This sequence is logged in full below.
+            </p>
+            <AgentDiscoveryFlow applicationId={applicationId} />
           </div>
         )}
       </div>

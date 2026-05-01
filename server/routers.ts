@@ -11,6 +11,9 @@ import {
   getAgentEventsByApplicationId,
   getAuditTrailByApplicationId,
   getDashboardMetrics,
+  getSlimMessagesByApplicationId,
+  getOtelSpansByApplicationId,
+  getDirEventsByApplicationId,
 } from "./db";
 import { runMortgagePipeline } from "./agents/pipeline";
 import { AGENT_REGISTRY } from "./agents/registry";
@@ -151,6 +154,27 @@ export const appRouter = router({
         badge: s.badge,
       }));
     }),
+
+    // SLIM inter-agent messages
+    getSlimMessages: publicProcedure
+      .input(z.object({ applicationId: z.string() }))
+      .query(async ({ input }) => {
+        return getSlimMessagesByApplicationId(input.applicationId);
+      }),
+
+    // OTel trace spans
+    getOtelSpans: publicProcedure
+      .input(z.object({ applicationId: z.string() }))
+      .query(async ({ input }) => {
+        return getOtelSpansByApplicationId(input.applicationId);
+      }),
+
+    // Agent Directory events (announce/discover/resolve)
+    getDirEvents: publicProcedure
+      .input(z.object({ applicationId: z.string() }))
+      .query(async ({ input }) => {
+        return getDirEventsByApplicationId(input.applicationId);
+      }),
   }),
 });
 

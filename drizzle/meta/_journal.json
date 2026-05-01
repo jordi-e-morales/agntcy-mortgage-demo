@@ -15,6 +15,13 @@
       "when": 1777614236285,
       "tag": "0001_sad_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1777648713113,
+      "tag": "0002_clever_vance_astro",
+      "breakpoints": true
     }
   ]
 }

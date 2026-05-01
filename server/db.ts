@@ -12,6 +12,15 @@ import {
   auditTrail,
   InsertAuditTrailEntry,
   AuditTrailEntry,
+  slimMessages,
+  InsertSlimMessage,
+  SlimMessage,
+  otelSpans,
+  InsertOtelSpan,
+  OtelSpan,
+  dirEvents,
+  InsertDirEvent,
+  DirEvent,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -151,6 +160,60 @@ export async function getAuditTrailByApplicationId(
     .from(auditTrail)
     .where(eq(auditTrail.applicationId, applicationId))
     .orderBy(auditTrail.createdAt);
+}
+
+// ─── SLIM Messages ────────────────────────────────────────────────────────────
+
+export async function addSlimMessage(data: InsertSlimMessage): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(slimMessages).values(data);
+}
+
+export async function getSlimMessagesByApplicationId(applicationId: string): Promise<SlimMessage[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(slimMessages)
+    .where(eq(slimMessages.applicationId, applicationId))
+    .orderBy(slimMessages.sentAt);
+}
+
+// ─── OTel Spans ───────────────────────────────────────────────────────────────
+
+export async function addOtelSpan(data: InsertOtelSpan): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(otelSpans).values(data);
+}
+
+export async function getOtelSpansByApplicationId(applicationId: string): Promise<OtelSpan[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(otelSpans)
+    .where(eq(otelSpans.applicationId, applicationId))
+    .orderBy(otelSpans.startTimeMs);
+}
+
+// ─── DIR Events ───────────────────────────────────────────────────────────────
+
+export async function addDirEvent(data: InsertDirEvent): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(dirEvents).values(data);
+}
+
+export async function getDirEventsByApplicationId(applicationId: string): Promise<DirEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(dirEvents)
+    .where(eq(dirEvents.applicationId, applicationId))
+    .orderBy(dirEvents.createdAt);
 }
 
 // ─── Dashboard Metrics ────────────────────────────────────────────────────────
