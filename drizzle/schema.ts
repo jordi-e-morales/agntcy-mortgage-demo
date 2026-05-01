@@ -1,5 +1,6 @@
 import {
   int,
+  bigint,
   mysqlEnum,
   mysqlTable,
   text,
@@ -195,8 +196,8 @@ export const otelSpans = mysqlTable("otel_spans", {
   serviceName: varchar("serviceName", { length: 128 }).notNull(),
   agentId: varchar("agentId", { length: 128 }),
   status: mysqlEnum("status", ["ok", "error", "unset"]).default("ok").notNull(),
-  startTimeMs: int("startTimeMs").notNull(),
-  endTimeMs: int("endTimeMs"),
+  startTimeMs: bigint("startTimeMs", { mode: "number" }).notNull(),
+  endTimeMs: bigint("endTimeMs", { mode: "number" }),
   durationMs: int("durationMs"),
   attributes: json("attributes"),
   events: json("events"),

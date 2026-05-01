@@ -22,6 +22,13 @@
       "when": 1777648713113,
       "tag": "0002_clever_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1777650921496,
+      "tag": "0003_tricky_tinkerer",
+      "breakpoints": true
     }
   ]
 }
