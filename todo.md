@@ -63,3 +63,19 @@
 - [x] Frontend: OpenTelemetry waterfall trace view
 - [x] Frontend: 3 new tabs on application detail page (SLIM Messages, OTel Trace, Agent Discovery)
 - [ ] Frontend: Dedicated "Protocol Explorer" page in sidebar [deferred]
+
+## Phase 8: Real ML Models + LLM Provider Switcher
+
+- [ ] Research and download mortgage/credit risk dataset
+- [ ] Train XGBoost credit risk model (default probability from credit score, DTI, LTV, income, employment)
+- [ ] Build GNN fraud/network risk model (detect suspicious patterns)
+- [ ] Serialize trained models and expose via Python inference server
+- [ ] Integrate XGBoost inference into Credit Analyzer agent
+- [ ] Integrate GNN inference into Compliance/Risk agents
+- [ ] Add llm_settings table to DB schema
+- [ ] Add tRPC procedures: getLLMSettings, updateLLMSettings, testLLMConnection
+- [ ] Build LLM provider abstraction layer (Gemini / OpenAI / Anthropic / Ollama)
+- [ ] Build Settings page in sidebar with LLM provider switcher UI
+- [ ] Update pipeline to use active LLM provider from settings DB
+- [ ] Update README with ML model and LLM settings documentation
+- [ ] Run all tests and ensure they pass

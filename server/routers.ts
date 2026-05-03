@@ -18,6 +18,15 @@ import {
 import { runMortgagePipeline } from "./agents/pipeline";
 import { AGENT_REGISTRY } from "./agents/registry";
 import { TEST_SCENARIOS, getScenarioById } from "./agents/scenarios";
+import {
+  getActiveLLMConfig,
+  invalidateLLMCache,
+  PROVIDER_MODELS,
+  type LLMProvider,
+} from "./llmProvider";
+import { getDb } from "./db";
+import { llmSettings } from "../drizzle/schema";
+import { checkMLHealth } from "./agents/mlClient";
 
 // ─── Application Input Schema ─────────────────────────────────────────────────
 
@@ -176,6 +185,104 @@ export const appRouter = router({
         return getDirEventsByApplicationId(input.applicationId);
       }),
   }),
+
+  // ─── Settings Procedures ──────────────────────────────────────────────────
+
+  settings: router({
+    // Get current LLM settings
+    getLLMSettings: publicProcedure.query(async () => {
+      const config = await getActiveLLMConfig();
+      const db = await getDb();
+      let apiKeySet = false;
+      if (db) {
+        const rows = await db.select().from(llmSettings).limit(1);
+        apiKeySet = !!(rows[0]?.apiKey);
+      }
+      return {
+        ...config,
+        apiKeySet,
+        availableModels: PROVIDER_MODELS,
+      };
+    }),
+
+    // Update LLM settings
+    updateLLMSettings: publicProcedure
+      .input(
+        z.object({
+          provider: z.enum(["gemini", "openai", "anthropic", "ollama"]),
+          modelName: z.string().min(1),
+          apiKey: z.string().optional(),
+          ollamaBaseUrl: z.string().optional(),
+          temperature: z.number().min(0).max(2).default(0.1),
+          maxTokens: z.number().min(256).max(32768).default(4096),
+          useBuiltIn: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Database unavailable");
+
+        // Upsert the single settings row (id=1)
+        const existing = await db.select().from(llmSettings).limit(1);
+        if (existing.length > 0) {
+          await db
+            .update(llmSettings)
+            .set({
+              provider: input.provider as LLMProvider,
+              modelName: input.modelName,
+              ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
+              ollamaBaseUrl: input.ollamaBaseUrl ?? "http://localhost:11434",
+              temperature: input.temperature,
+              maxTokens: input.maxTokens,
+              useBuiltIn: input.useBuiltIn,
+            });
+        } else {
+          await db.insert(llmSettings).values({
+            provider: input.provider as LLMProvider,
+            modelName: input.modelName,
+            apiKey: input.apiKey ?? null,
+            ollamaBaseUrl: input.ollamaBaseUrl ?? "http://localhost:11434",
+            temperature: input.temperature,
+            maxTokens: input.maxTokens,
+            useBuiltIn: input.useBuiltIn,
+          });
+        }
+
+        invalidateLLMCache();
+        return { success: true };
+      }),
+
+    // Test Ollama connection
+    testOllamaConnection: publicProcedure
+      .input(z.object({ baseUrl: z.string() }))
+      .mutation(async ({ input }) => {
+        try {
+          const res = await fetch(`${input.baseUrl}/api/tags`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!res.ok) return { connected: false, error: `HTTP ${res.status}` };
+          const data = await res.json() as { models?: Array<{ name: string }> };
+          return {
+            connected: true,
+            models: data.models?.map((m) => m.name) ?? [],
+          };
+        } catch (err) {
+          return { connected: false, error: String(err) };
+        }
+      }),
+
+    // ML inference server health
+    getMLHealth: publicProcedure.query(async () => {
+      const health = await checkMLHealth();
+      return {
+        online: health?.status === "ok",
+        xgboostLoaded: health?.xgboost_loaded ?? false,
+        gnnLoaded: health?.gnn_loaded ?? false,
+        serverUrl: process.env.ML_SERVER_URL ?? "http://localhost:8001",
+      };
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
+

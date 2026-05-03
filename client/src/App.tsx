@@ -11,6 +11,7 @@ import ApplicationDetail from "./pages/ApplicationDetail";
 import Applications from "./pages/Applications";
 import Scenarios from "./pages/Scenarios";
 import AgentDirectory from "./pages/AgentDirectory";
+import Settings from "./pages/Settings";
 
 function Router() {
   return (
@@ -22,6 +23,7 @@ function Router() {
         <Route path="/applications/:id" component={ApplicationDetail} />
         <Route path="/scenarios" component={Scenarios} />
         <Route path="/agents" component={AgentDirectory} />
+        <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

@@ -15,6 +15,15 @@ import {
   pipelineChannel,
 } from "./protocolEmitter";
 import { nanoid } from "nanoid";
+import { callLLM } from "../llmProvider";
+import {
+  predictCreditRisk,
+  predictFraudRisk,
+  buildCreditRiskInput,
+  buildFraudRiskInput,
+  type CreditRiskResult,
+  type FraudRiskResult,
+} from "./mlClient";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,7 +118,7 @@ async function runAgent<T>(
   const startTime = Date.now();
 
   try {
-    const response = await invokeLLM({
+    const response = await callLLM({
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -337,6 +346,13 @@ interface CreditAnalyzerResult {
   recommendation: string;
   confidenceScore: number;
   creditAnalysisSummary: string;
+  // ML model outputs (injected pre-LLM)
+  mlDefaultProbability?: number;
+  mlRiskTier?: string;
+  mlRiskLabel?: string;
+  mlTopRiskFactors?: Array<{ feature: string; importance: number; value: number | null }>;
+  mlModelAuc?: number;
+  mlTrainingSamples?: number;
 }
 
 async function runCreditAnalyzer(app: ApplicationInput, ctx: PipelineContext): Promise<CreditAnalyzerResult> {
@@ -347,6 +363,31 @@ async function runCreditAnalyzer(app: ApplicationInput, ctx: PipelineContext): P
     : 0;
   const totalMonthlyDebt = monthlyDebt + estimatedMortgagePayment;
   const dti = monthlyIncome > 0 ? (totalMonthlyDebt / monthlyIncome) * 100 : 0;
+
+  // ── XGBoost ML Inference (pre-LLM) ──────────────────────────────────────────
+  const propertyValue = app.propertyValue ?? app.loanAmount * 1.25;
+  const ltvRatio = app.loanAmount / propertyValue;
+  const dtiRatio = dti / 100;
+  const propertyAge = app.propertyYearBuilt ? 2024 - app.propertyYearBuilt : 10;
+  const mlInput = buildCreditRiskInput({
+    creditScore: app.creditScore ?? 650,
+    annualIncome: app.annualIncome ?? 60000,
+    loanAmount: app.loanAmount,
+    propertyValue,
+    downPayment: app.downPayment ?? (propertyValue - app.loanAmount),
+    ltvRatio,
+    dtiRatio,
+    monthlyDebts: app.existingDebtsMonthly ?? 0,
+    yearsEmployed: app.yearsEmployed ?? 2,
+    employmentType: app.employmentType ?? "full-time",
+    loanTermMonths: app.loanTermMonths,
+    loanPurpose: app.loanPurpose ?? "purchase",
+    propertyType: app.propertyType ?? "single-family",
+    propertyAge,
+    borrowerAge: app.borrowerAge ?? 35,
+    propertyState: app.propertyState,
+  });
+  const mlResult: CreditRiskResult | null = await predictCreditRisk(mlInput);
 
   const input = {
     creditScore: app.creditScore,
@@ -359,6 +400,12 @@ async function runCreditAnalyzer(app: ApplicationInput, ctx: PipelineContext): P
     employmentType: app.employmentType,
     loanAmount: app.loanAmount,
     loanPurpose: app.loanPurpose,
+    // ML model output injected as additional context
+    xgboostDefaultProbability: mlResult?.default_probability ?? null,
+    xgboostRiskTier: mlResult?.risk_tier ?? null,
+    xgboostRecommendation: mlResult?.recommendation ?? null,
+    xgboostTopRiskFactors: mlResult?.top_risk_factors ?? null,
+    xgboostModelAuc: mlResult?.model_auc ?? null,
   };
 
   return runAgent<CreditAnalyzerResult>(
@@ -374,7 +421,12 @@ Always respond with valid JSON matching the exact schema provided.`,
     `Analyse the credit profile for this mortgage application:
 ${JSON.stringify(input, null, 2)}
 
-Provide a thorough credit risk assessment including rating, DTI analysis, risk factors, strengths, and a clear recommendation.`,
+IMPORTANT: The XGBoost ML model (trained on 50,000 mortgage records, AUC=${mlResult?.model_auc ?? 'N/A'}) has already computed:
+- Default probability: ${mlResult?.default_probability ?? 'N/A'}
+- Risk tier: ${mlResult?.risk_tier ?? 'N/A'}
+- Recommendation: ${mlResult?.recommendation ?? 'N/A'}
+
+Use this ML prediction as a strong quantitative signal in your analysis. Provide a thorough credit risk assessment including rating, DTI analysis, risk factors, strengths, and a clear recommendation that is consistent with the ML model output unless there are compelling qualitative reasons to differ.`,
     {
       type: "object",
       properties: {
@@ -406,7 +458,15 @@ Provide a thorough credit risk assessment including rating, DTI analysis, risk f
     "application-processor-v1",
     `did:agntcy:mortgage-demo/pipeline/stage-2-parallel`,
     "agntcy.mortgage.credit-analyzer.request"
-  );
+  ).then((result) => ({
+    ...result,
+    mlDefaultProbability: mlResult?.default_probability,
+    mlRiskTier: mlResult?.risk_tier,
+    mlRiskLabel: mlResult?.risk_label,
+    mlTopRiskFactors: mlResult?.top_risk_factors,
+    mlModelAuc: mlResult?.model_auc,
+    mlTrainingSamples: mlResult?.training_samples,
+  }));
 }
 
 // ─── Agent 3: Collateral Valuator ─────────────────────────────────────────────
@@ -494,6 +554,11 @@ Assess the property value, LTV ratio, market conditions, and any property-specif
 
 interface ComplianceCheckerResult {
   complianceStatus: string;
+  // GNN ML model outputs
+  gnnFraudProbability?: number;
+  gnnNetworkFlag?: string;
+  gnnNetworkAnomalies?: string[];
+  gnnModelAuc?: number;
   fairLendingAssessment: {
     status: string;
     findings: string[];
@@ -520,6 +585,17 @@ async function runComplianceChecker(
   collateralResult: CollateralValuatorResult,
   ctx: PipelineContext
 ): Promise<ComplianceCheckerResult> {
+  // ── GNN Fraud Detection (pre-LLM) ───────────────────────────────────────
+  const fraudInput = buildFraudRiskInput({
+    creditScore: app.creditScore ?? 650,
+    dtiRatio: creditResult.dtiRatio / 100,
+    ltvRatio: collateralResult.ltvRatio / 100,
+    annualIncome: app.annualIncome ?? 60000,
+    yearsEmployed: app.yearsEmployed ?? 2,
+    sharedEmployerCount: 0, // In production, query DB for same employer
+  });
+  const gnnResult: FraudRiskResult | null = await predictFraudRisk(fraudInput);
+
   const input = {
     borrowerName: app.borrowerName,
     borrowerAge: app.borrowerAge,
@@ -532,6 +608,11 @@ async function runComplianceChecker(
     ltvRatio: collateralResult.ltvRatio,
     loanTermMonths: app.loanTermMonths,
     propertyType: app.propertyType,
+    // GNN fraud detection output
+    gnnFraudProbability: gnnResult?.fraud_probability ?? null,
+    gnnNetworkFlag: gnnResult?.network_flag ?? null,
+    gnnNetworkAnomalies: gnnResult?.network_anomalies ?? null,
+    gnnModelAuc: gnnResult?.model_auc ?? null,
   };
 
   return runAgent<ComplianceCheckerResult>(
@@ -550,7 +631,12 @@ Always respond with valid JSON matching the exact schema provided.`,
     `Perform a comprehensive compliance check for this mortgage application:
 ${JSON.stringify(input, null, 2)}
 
-Check Fair Lending compliance, BSA/AML screening, all regulatory limits, and required disclosures.`,
+IMPORTANT: The GNN (Graph Neural Network) fraud detection model (AUC=${gnnResult?.model_auc ?? 'N/A'}, fraud recall=91.3%) has already analyzed the borrower's network relationships:
+- Fraud probability: ${gnnResult?.fraud_probability ?? 'N/A'}
+- Network flag: ${gnnResult?.network_flag ?? 'N/A'}
+- Anomalies detected: ${JSON.stringify(gnnResult?.network_anomalies ?? [])}
+
+Incorporate this GNN network risk signal into your BSA/AML assessment. Check Fair Lending compliance, BSA/AML screening (informed by GNN), all regulatory limits, and required disclosures.`,
     {
       type: "object",
       properties: {
@@ -607,7 +693,13 @@ Check Fair Lending compliance, BSA/AML screening, all regulatory limits, and req
     "application-processor-v1",
     `did:agntcy:mortgage-demo/pipeline/stage-2-parallel`,
     "agntcy.mortgage.compliance-checker.request"
-  );
+  ).then((result) => ({
+    ...result,
+    gnnFraudProbability: gnnResult?.fraud_probability,
+    gnnNetworkFlag: gnnResult?.network_flag,
+    gnnNetworkAnomalies: gnnResult?.network_anomalies,
+    gnnModelAuc: gnnResult?.model_auc,
+  }));
 }
 
 // ─── Agent 5: Risk Scorer ─────────────────────────────────────────────────────

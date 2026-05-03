@@ -31,6 +31,7 @@ import {
   BookOpen,
   PlayCircle,
   ChevronRight,
+  Settings,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -43,6 +44,7 @@ const menuItems = [
   { icon: PlayCircle, label: "Test Scenarios", path: "/scenarios" },
   { icon: Network, label: "Agent Directory", path: "/agents" },
   { icon: ClipboardList, label: "Applications", path: "/applications" },
+  { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

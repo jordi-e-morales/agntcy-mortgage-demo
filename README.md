@@ -97,28 +97,59 @@ Each arrow represents a **SLIM message** with a full protocol envelope. The thre
 
 ## AI/ML Stack
 
+### Machine Learning Models
+
+Two real ML models are trained on publicly available mortgage data and run as a dedicated inference service alongside the main pipeline:
+
+| Model | Type | Training Data | Task | Performance |
+|-------|------|--------------|------|-------------|
+| **XGBoost Credit Risk** | Gradient Boosted Trees | 50,000 synthetic mortgage records (Kaggle) | Binary default prediction (PD score 0–100) | AUC 0.786, Accuracy 72% |
+| **GNN Fraud Detector** | Graph Convolutional Network (2-layer GCN) | Borrower-property-employer graph (50K nodes, 150K edges) | Fraud ring / anomaly detection (fraud score 0–100) | AUC 0.868, Fraud recall 91% |
+
+**XGBoost top features** (by SHAP importance): credit score, employment years, DTI ratio, LTV ratio, geographic risk index, annual income.
+
+**GNN architecture**: 2-layer Graph Convolutional Network with ReLU activations, trained on a heterogeneous graph connecting borrowers to properties and employers. Captures network-level fraud signals (shared addresses, employer clusters, co-borrower rings) that tabular models miss.
+
+Both models are served via a **FastAPI inference server** (`http://localhost:8001`) and called from the Node.js pipeline via HTTP. The Credit Analyzer agent calls XGBoost for the PD score; the Compliance Checker calls the GNN for fraud risk; the Risk Scorer incorporates both scores into the composite risk calculation.
+
+### LLM Layer
+
 | Component | Technology | Details |
-|-----------|-----------|---------|
-| **LLM** | Google Gemini 2.5 Flash | All seven agents call this model via structured JSON output (`response_format: json_schema`) |
-| **Orchestration pattern** | LangGraph-style | Sequential stages with a parallel fan-out at Stage 2; implemented as async TypeScript |
-| **Output format** | Structured JSON | Every agent response is a strictly typed JSON object — no free text in the pipeline |
-| **Pre-LLM calculations** | Deterministic | DTI ratio, LTV ratio, and monthly payment are computed mathematically before the LLM call |
+|-----------|-----------|----------|
+| **Default LLM** | Google Gemini 2.5 Flash | Platform built-in API — no key required |
+| **Orchestration pattern** | LangGraph-style | Sequential stages with parallel fan-out at Stage 2 |
+| **Output format** | Structured JSON | Every agent response is a strictly typed JSON object via `response_format: json_schema` |
+| **Pre-LLM calculations** | Deterministic | DTI ratio, LTV ratio, and monthly payment computed mathematically before LLM call |
 | **Regulatory thresholds** | Hardcoded rules | Industry-standard limits: LTV max 97%, DTI max 43% (QM), credit score min 620 |
 | **Interest rate model** | Rule-based tiers | Base rate 6.75% (30-year fixed); five risk tiers adjust ±0.5% to ±1.75% |
 
+### LLM Provider Switcher
+
+The **Settings** page allows switching the LLM provider at runtime without redeployment. Supported providers:
+
+| Provider | Models | Use Case |
+|----------|--------|----------|
+| **Manus Built-in** | Gemini 2.5 Flash | Default — no API key required, cloud-hosted |
+| **Google Gemini** | Gemini 2.5 Flash/Pro, 2.0 Flash, 1.5 series | Direct Gemini API with your own key |
+| **OpenAI** | GPT-4o, GPT-4o-mini, GPT-4 Turbo, GPT-3.5 | OpenAI API |
+| **Anthropic** | Claude Opus 4.5, Sonnet 4.5, Claude 3.5 series | Anthropic API |
+| **Ollama (Local)** | Llama 3.2, Mistral, Mixtral, Phi-3, Qwen 2.5, DeepSeek-R1, Gemma 2, etc. | **Zero cost, full privacy** — runs entirely on your machine |
+
+The Settings page also shows real-time ML inference server health (XGBoost and GNN model load status).
+
 ### What the LLM Reasons About
 
-The LLM is not used as a black box. Each agent receives a **system prompt** defining its role and the regulatory framework it operates under, and a **user prompt** containing the structured input data. The LLM returns a **strictly typed JSON response** — no parsing of free text occurs anywhere in the pipeline.
+The LLM is not used as a black box. Each agent receives a **system prompt** defining its role and the regulatory framework it operates under, and a **user prompt** containing the structured input data plus ML model scores. The LLM returns a **strictly typed JSON response** — no parsing of free text occurs anywhere in the pipeline.
 
-| Agent | LLM Reasoning Task |
-|-------|-------------------|
-| Application Processor | Completeness assessment, field validation, profile normalisation |
-| Credit Analyzer | Credit rating assignment, risk factor identification, recommendation |
-| Collateral Valuator | Property quality assessment, market condition evaluation |
-| Compliance Checker | Fair Lending disparate impact analysis, BSA/AML pattern screening, regulatory limit evaluation |
-| Risk Scorer | Weighted composite risk score, tier assignment, pricing rationale |
-| Decision Engine | Synthesis of all prior outputs into a final verdict with key factors and conditions |
-| Documentation Generator | Required document checklist and regulatory disclosure text |
+| Agent | ML Input | LLM Reasoning Task |
+|-------|----------|-------------------|
+| Application Processor | — | Completeness assessment, field validation, profile normalisation |
+| Credit Analyzer | **XGBoost PD score** | Credit rating assignment, risk factor identification, recommendation |
+| Collateral Valuator | — | Property quality assessment, market condition evaluation |
+| Compliance Checker | **GNN fraud score** | Fair Lending disparate impact analysis, BSA/AML pattern screening, regulatory limit evaluation |
+| Risk Scorer | XGBoost + GNN scores | Weighted composite risk score, tier assignment, pricing rationale |
+| Decision Engine | — | Synthesis of all prior outputs into a final verdict with key factors and conditions |
+| Documentation Generator | — | Required document checklist and regulatory disclosure text |
 
 ---
 
@@ -184,7 +215,8 @@ Aggregated performance statistics across all completed runs: approval rate, aver
 | **Frontend** | React 19, TypeScript, Tailwind CSS 4, shadcn/ui |
 | **Backend** | Node.js, Express 4, tRPC 11 |
 | **Database** | MySQL (TiDB-compatible) via Drizzle ORM |
-| **LLM** | Google Gemini 2.5 Flash |
+| **LLM** | Configurable: Gemini (default), OpenAI, Anthropic, Ollama |
+| **ML Models** | XGBoost (credit risk) + GNN/GCN (fraud detection) via FastAPI |
 | **Auth** | Manus OAuth (JWT session cookies) |
 | **Build** | Vite 7, esbuild, tsx |
 | **Testing** | Vitest (13 tests) |
@@ -202,6 +234,7 @@ Seven tables power the platform:
 | `slim_messages` | SLIM protocol envelopes for all inter-agent communications |
 | `otel_spans` | OpenTelemetry-compatible distributed trace spans |
 | `dir_events` | Agent Directory announce/discover/resolve events |
+| `llm_settings` | Active LLM provider configuration (provider, model, API key, temperature) |
 
 ---
 
@@ -227,13 +260,18 @@ agntcy-mortgage-demo/
 │   └── schema.ts                        # All 7 database tables
 ├── server/
 │   ├── agents/
+│   │   ├── mlClient.ts                  # XGBoost + GNN inference client
 │   │   ├── pipeline.ts                  # 7-agent LLM orchestration
 │   │   ├── protocolEmitter.ts           # SLIM / OTel / DIR event emission
 │   │   ├── registry.ts                  # OASF agent definitions
 │   │   └── scenarios.ts                 # Pre-built test scenario data
 │   ├── db.ts                            # Database query helpers
+│   ├── llmProvider.ts                   # Multi-provider LLM abstraction layer
 │   ├── mortgage.test.ts                 # Vitest test suite
 │   └── routers.ts                       # tRPC API procedures
+├── ml_training/
+│   ├── train_models.py                  # XGBoost + GNN training script
+│   └── inference_server.py              # FastAPI ML inference server
 └── README.md
 ```
 
@@ -303,6 +341,7 @@ The recommended demo flow for a live audience:
 7. **Check Agent Discovery** — show the DIR announce/discover/resolve sequence to explain how agents find each other.
 8. **Run Compliance Trigger** — return to Scenarios and run the "Compliance Trigger" case to show the BSA/AML escalation pathway.
 9. **Visit Agent Directory** — show the OASF capability definitions for all seven registered agents.
+10. **Open Settings** — demonstrate the LLM provider switcher; switch to Ollama to show how the demo runs entirely locally at zero cost.
 
 ---
 

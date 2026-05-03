@@ -227,3 +227,27 @@ export const dirEvents = mysqlTable("dir_events", {
 
 export type DirEvent = typeof dirEvents.$inferSelect;
 export type InsertDirEvent = typeof dirEvents.$inferInsert;
+
+// ─── LLM Provider Settings ────────────────────────────────────────────────────
+
+export const llmSettings = mysqlTable("llm_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  // Only one row exists (id=1), upserted on save
+  provider: mysqlEnum("provider", ["gemini", "openai", "anthropic", "ollama"]).default("gemini").notNull(),
+  // Provider-specific model name
+  modelName: varchar("modelName", { length: 128 }).default("gemini-2.5-flash").notNull(),
+  // API key (encrypted at rest via application layer, stored as text)
+  apiKey: text("apiKey"),
+  // Ollama base URL (e.g. http://localhost:11434)
+  ollamaBaseUrl: varchar("ollamaBaseUrl", { length: 512 }).default("http://localhost:11434"),
+  // Temperature (0.0 - 2.0)
+  temperature: float("temperature").default(0.1).notNull(),
+  // Max tokens
+  maxTokens: int("maxTokens").default(4096).notNull(),
+  // Whether to use the built-in Manus API (overrides provider/apiKey)
+  useBuiltIn: boolean("useBuiltIn").default(true).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type LlmSettings = typeof llmSettings.$inferSelect;
+export type InsertLlmSettings = typeof llmSettings.$inferInsert;
