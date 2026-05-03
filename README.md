@@ -116,7 +116,7 @@ Both models are served via a **FastAPI inference server** (`http://localhost:800
 
 | Component | Technology | Details |
 |-----------|-----------|----------|
-| **Default LLM** | Google Gemini 2.5 Flash | Platform built-in API — no key required |
+| **Default LLM** | Google Gemini 2.5 Flash | Configurable via Settings — see LLM Provider Switcher below |
 | **Orchestration pattern** | LangGraph-style | Sequential stages with parallel fan-out at Stage 2 |
 | **Output format** | Structured JSON | Every agent response is a strictly typed JSON object via `response_format: json_schema` |
 | **Pre-LLM calculations** | Deterministic | DTI ratio, LTV ratio, and monthly payment computed mathematically before LLM call |
@@ -129,10 +129,9 @@ The **Settings** page allows switching the LLM provider at runtime without redep
 
 | Provider | Models | Use Case |
 |----------|--------|----------|
-| **Manus Built-in** | Gemini 2.5 Flash | Default — no API key required, cloud-hosted |
-| **Google Gemini** | Gemini 2.5 Flash/Pro, 2.0 Flash, 1.5 series | Direct Gemini API with your own key |
-| **OpenAI** | GPT-4o, GPT-4o-mini, GPT-4 Turbo, GPT-3.5 | OpenAI API |
-| **Anthropic** | Claude Opus 4.5, Sonnet 4.5, Claude 3.5 series | Anthropic API |
+| **Google Gemini** | Gemini 2.5 Flash/Pro, 2.0 Flash, 1.5 series | Gemini API with your own key |
+| **OpenAI** | GPT-4o, GPT-4o-mini, GPT-4 Turbo, GPT-3.5 | OpenAI API with your own key |
+| **Anthropic** | Claude Opus 4.5, Sonnet 4.5, Claude 3.5 series | Anthropic API with your own key |
 | **Ollama (Local)** | Llama 3.2, Mistral, Mixtral, Phi-3, Qwen 2.5, DeepSeek-R1, Gemma 2, etc. | **Zero cost, full privacy** — runs entirely on your machine |
 
 The Settings page also shows real-time ML inference server health (XGBoost and GNN model load status).
@@ -217,7 +216,7 @@ Aggregated performance statistics across all completed runs: approval rate, aver
 | **Database** | MySQL (TiDB-compatible) via Drizzle ORM |
 | **LLM** | Configurable: Gemini (default), OpenAI, Anthropic, Ollama |
 | **ML Models** | XGBoost (credit risk) + GNN/GCN (fraud detection) via FastAPI |
-| **Auth** | Manus OAuth (JWT session cookies) |
+| **Auth** | OAuth 2.0 (JWT session cookies) |
 | **Build** | Vite 7, esbuild, tsx |
 | **Testing** | Vitest (13 tests) |
 
@@ -291,13 +290,16 @@ The following environment variables are required:
 
 ```bash
 DATABASE_URL=          # MySQL connection string
-JWT_SECRET=            # Session cookie signing secret
-BUILT_IN_FORGE_API_KEY= # LLM API key (Manus platform)
-BUILT_IN_FORGE_API_URL= # LLM API base URL
-VITE_APP_ID=           # OAuth application ID
-OAUTH_SERVER_URL=      # OAuth backend URL
-VITE_OAUTH_PORTAL_URL= # OAuth login portal URL
+JWT_SECRET=            # Session cookie signing secret (any random secret)
+
+# LLM provider — set one depending on your chosen provider:
+GEMINI_API_KEY=        # Google Gemini API key (https://aistudio.google.com)
+OPENAI_API_KEY=        # OpenAI API key (https://platform.openai.com)
+ANTHROPIC_API_KEY=     # Anthropic API key (https://console.anthropic.com)
+OLLAMA_BASE_URL=       # Ollama base URL if running locally (default: http://localhost:11434)
 ```
+
+> **Tip:** If you use Ollama locally, no cloud API key is required. Run `ollama pull llama3.2` to download a model, then set `OLLAMA_BASE_URL=http://localhost:11434` and configure the provider via the Settings page.
 
 ### Installation
 
@@ -317,6 +319,26 @@ pnpm dev
 ```
 
 The application will be available at `http://localhost:3000`.
+
+### Starting the ML Inference Server
+
+The XGBoost and GNN models run as a separate FastAPI service. Start it alongside the main app:
+
+```bash
+# Install Python dependencies (first time only)
+pip install fastapi uvicorn xgboost scikit-learn torch torch-geometric numpy
+
+# Train the models (first time only, ~2 minutes)
+cd ml_training
+python train_models.py
+
+# Start the inference server (port 8001)
+python inference_server.py
+```
+
+The inference server runs at `http://localhost:8001`. If it is not running, the pipeline will fall back to rule-based credit scoring and fraud detection — the application will still function, but ML scores will not be available.
+
+> **Health check:** `curl http://localhost:8001/health` returns `{"status": "ok", "xgboost": true, "gnn": true}` when both models are loaded.
 
 ### Running Tests
 
