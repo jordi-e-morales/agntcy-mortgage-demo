@@ -64,7 +64,10 @@ const PROVIDER_META: Record<
 
 export default function Settings() {
   const { data: settings, isLoading, refetch } = trpc.settings.getLLMSettings.useQuery();
-  const { data: mlHealth, refetch: refetchML } = trpc.settings.getMLHealth.useQuery();
+  const { data: mlHealth, refetch: refetchML } = trpc.settings.getMLHealth.useQuery(undefined, {
+    refetchInterval: 10000,
+    staleTime: 0,
+  });
   const updateSettings = trpc.settings.updateLLMSettings.useMutation({
     onSuccess: () => {
       toast.success("LLM settings saved successfully");
@@ -181,10 +184,10 @@ export default function Settings() {
               <div className="border border-zinc-200 p-4 bg-zinc-50">
                 <div className="flex items-center gap-2 mb-1">
                   <CheckCircle className="w-4 h-4 text-emerald-600" />
-                  <span className="text-sm font-semibold text-black">Manus Built-in API Active</span>
+                  <span className="text-sm font-semibold text-black">Built-in API Active</span>
                 </div>
                 <p className="text-xs text-zinc-500">
-                  Using the platform-managed Gemini 2.5 Flash API. No API key required.
+                  Using the built-in Gemini 2.5 Flash API. No API key required.
                   Switch to External to use your own provider or run models locally.
                 </p>
               </div>
@@ -414,7 +417,7 @@ export default function Settings() {
               <div className="flex justify-between">
                 <span className="text-zinc-500">Source</span>
                 <span className="font-bold text-black">
-                  {settings?.useBuiltIn ? "Manus Built-in" : "External"}
+                  {settings?.useBuiltIn ? "Built-in" : "External"}
                 </span>
               </div>
               <div className="border-t border-zinc-100" />
