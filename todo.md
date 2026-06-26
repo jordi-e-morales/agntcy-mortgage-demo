@@ -66,16 +66,16 @@
 
 ## Phase 8: Real ML Models + LLM Provider Switcher
 
-- [ ] Research and download mortgage/credit risk dataset
-- [ ] Train XGBoost credit risk model (default probability from credit score, DTI, LTV, income, employment)
-- [ ] Build GNN fraud/network risk model (detect suspicious patterns)
-- [ ] Serialize trained models and expose via Python inference server
-- [ ] Integrate XGBoost inference into Credit Analyzer agent
-- [ ] Integrate GNN inference into Compliance/Risk agents
-- [ ] Add llm_settings table to DB schema
-- [ ] Add tRPC procedures: getLLMSettings, updateLLMSettings, testLLMConnection
-- [ ] Build LLM provider abstraction layer (Gemini / OpenAI / Anthropic / Ollama)
-- [ ] Build Settings page in sidebar with LLM provider switcher UI
-- [ ] Update pipeline to use active LLM provider from settings DB
-- [ ] Update README with ML model and LLM settings documentation
-- [ ] Run all tests and ensure they pass
+- [x] Research and download mortgage/credit risk dataset
+- [x] Train XGBoost credit risk model (default probability from credit score, DTI, LTV, income, employment)
+- [x] Build GNN fraud/network risk model (detect suspicious patterns)
+- [x] Serialize trained models and expose via Python inference server
+- [x] Integrate XGBoost inference into Credit Analyzer agent
+- [x] Integrate GNN inference into Compliance/Risk agents
+- [x] Add llm_settings table to DB schema
+- [x] Add tRPC procedures: getLLMSettings, updateLLMSettings, testLLMConnection
+- [x] Build LLM provider abstraction layer (Gemini / OpenAI / Anthropic / Ollama)
+- [x] Build Settings page in sidebar with LLM provider switcher UI
+- [x] Update pipeline to use active LLM provider from settings DB
+- [x] Update README with ML model and LLM settings documentation
+- [x] Run all tests and ensure they pass
